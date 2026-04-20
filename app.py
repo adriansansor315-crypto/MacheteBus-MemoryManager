@@ -75,4 +75,24 @@ with st.sidebar:
             st.error("Error: No hay espacio contiguo suficiente (Fragmentación Externa).")
 
 # --- VISUALIZACIÓN DEL BUS ---
-st.subheader("🗺
+st.subheader("🗺️ Mapa de Ocupación (RAM)")
+cols = st.columns(10)
+for i, estado in enumerate(st.session_state.memoria):
+    color = "🟩" if estado == "Libre" else "🟥"
+    label = f"{i}: {color}" if estado == "Libre" else f"{i}: {estado}"
+    cols[i % 10].info(label)
+
+# --- MONITOR Y OOM KILLER ---
+st.divider()
+st.subheader("📊 Monitor de Procesos")
+if st.session_state.procesos:
+    st.table(pd.DataFrame(st.session_state.procesos).T)
+
+if st.button("🚨 Activar OOM Killer"):
+    if st.session_state.procesos:
+        # Busca al que tiene mayor RES
+        borrar = max(st.session_state.procesos, key=lambda x: st.session_state.procesos[x]['RES'])
+        st.warning(f"El Kernel expulsó a: {borrar} para liberar memoria.")
+        st.session_state.memoria = ["Libre" if x == borrar else x for x in st.session_state.memoria]
+        del st.session_state.procesos[borrar]
+        st.rerun()
