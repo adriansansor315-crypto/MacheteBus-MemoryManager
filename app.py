@@ -1,68 +1,91 @@
 import streamlit as st
 import pandas as pd
-import random
 
-# Configuración de la página con tu estilo
-st.set_page_config(page_title="Machete-Bus: Memory Manager", layout="wide")
+# Configuración inicial
+st.set_page_config(page_title="Machete-Bus V2", layout="wide")
+st.title("🚌 Machete-Bus: Gestión de Memoria Avanzada")
 
-st.title("🚌 Machete-Bus: Gestión de Memoria Urbana")
-st.markdown("### 'Ciencia y Tecnología al Servicio del Hombre' - MTI. Víctor Bianchi")
-
-# --- LÓGICA DE MEMORIA ---
+# Inicializar estado del bus (40 asientos)
 if 'memoria' not in st.session_state:
-    # Representamos 40 asientos (bloques de memoria) [cite: 10]
     st.session_state.memoria = ["Libre"] * 40
-    st.session_state.procesos = {} # Para rastrear VIRT vs RES [cite: 18, 19]
+    st.session_state.procesos = {}
 
-def asignar_memoria(nombre, tamaño_res, tamaño_virt, algoritmo):
-    # Aquí implementarías la lógica de First-Fit, Best-Fit o Worst-Fit 
-    # Por ahora, una simulación simple de ocupación:
-    espacios_libres = [i for i, x in enumerate(st.session_state.memoria) if x == "Libre"]
-    
-    if len(espacios_libres) >= tamaño_res:
-        for i in range(tamaño_res):
-            idx = espacios_libres[i]
-            st.session_state.memoria[idx] = nombre
-        st.session_state.procesos[nombre] = {"RES": tamaño_res, "VIRT": tamaño_virt}
+# --- FUNCIONES DE ALGORITMOS ---
+def obtener_huecos_libres():
+    huecos = []
+    inicio = None
+    for i, estado in enumerate(st.session_state.memoria):
+        if estado == "Libre":
+            if inicio is None: inicio = i
+        else:
+            if inicio is not None:
+                huecos.append((inicio, i - inicio)) # (indice_inicio, tamaño)
+                inicio = None
+    if inicio is not None:
+        huecos.append((inicio, 40 - inicio))
+    return huecos
+
+def asignar_memoria(nombre, tam, algo, asientos_manuales=None):
+    if algo == "Manual" and asientos_manuales:
+        for i in asientos_manuales:
+            st.session_state.memoria[i] = nombre
         return True
-    return False
+    
+    huecos = [h for h in obtener_huecos_libres() if h[1] >= tam]
+    if not huecos: return False
 
-# --- INTERFAZ LATERAL (Controles) ---
+    # Lógica por Algoritmo
+    if algo == "First-Fit":
+        seleccionado = huecos[0]
+    elif algo == "Best-Fit":
+        seleccionado = min(huecos, key=lambda x: x[1])
+    elif algo == "Worst-Fit":
+        seleccionado = max(huecos, key=lambda x: x[1])
+    
+    for i in range(seleccionado[0], seleccionado[0] + tam):
+        st.session_state.memoria[i] = nombre
+    return True
+
+# --- SIDEBAR: DESPACHO ---
 with st.sidebar:
     st.header("🎟️ Despacho de Pasajeros")
-    nombre_p = st.text_input("Nombre del Proceso (Pasajero)", "Rap_Track_01")
-    res = st.number_input("Asientos Reales (RES)", min_value=1, max_value=10)
-    virt = st.number_input("Espacio Prometido (VIRT)", min_value=res, max_value=20)
+    nombre = st.text_input("Nombre del Proceso", "Rap_Track_02")
+    res = st.number_input("Asientos Reales (RES)", 1, 40, 5)
+    virt = st.number_input("Espacio Prometido (VIRT)", res, 40, 10)
     
-    algo = st.selectbox("Algoritmo de Asignación", ["First-Fit", "Best-Fit", "Worst-Fit"])
+    tipo_asignacion = st.selectbox("Algoritmo", ["First-Fit", "Best-Fit", "Worst-Fit", "Manual"])
     
+    asientos_eleccion = []
+    if tipo_asignacion == "Manual":
+        st.info("Selecciona exactamente los asientos en el mapa principal.")
+        asientos_eleccion = st.multiselect("Asientos elegidos:", 
+                                         [i for i, x in enumerate(st.session_state.memoria) if x == "Libre"])
+
     if st.button("Vender Boleto"):
-        if asignar_memoria(nombre_p, res, virt, algo):
-            st.success(f"Pasajero {nombre_p} abordó con éxito.")
+        if tipo_asignacion == "Manual" and len(asientos_eleccion) != res:
+            st.error(f"Debes seleccionar exactamente {res} asientos.")
+        elif asignar_memoria(nombre, res, tipo_asignacion, asientos_eleccion):
+            st.session_state.procesos[nombre] = {"RES": res, "VIRT": virt, "Algo": tipo_asignacion}
+            st.success("¡Abordaje exitoso!")
         else:
-            st.error("¡No hay asientos contiguos! (Fragmentación Externa)")
+            st.error("Error: No hay espacio suficiente (Fragmentación Externa).")
 
-# --- VISUALIZACIÓN DEL BUS ---
+# --- VISUALIZACIÓN ---
 st.subheader("🗺️ Mapa de Ocupación (RAM)")
-cols = st.columns(10) # 10 columnas para los 40 asientos
-for i, asiento in enumerate(st.session_state.memoria):
-    color = "🟩" if asiento == "Libre" else "🟥"
-    cols[i % 10].write(f"{i+1}: {color}\n({asiento})")
+cols = st.columns(10)
+for i, estado in enumerate(st.session_state.memoria):
+    color = "🟩" if estado == "Libre" else "🟥"
+    label = f"{i}: {color}" if estado == "Libre" else f"{i}: {estado}"
+    cols[i % 10].info(label)
 
-# --- MONITOR DE RECURSOS (Actividad 2) ---
+# --- MONITOR ---
 st.divider()
-st.subheader("📊 Monitor de Procesos (htop style)")
 if st.session_state.procesos:
-    df = pd.DataFrame(st.session_state.procesos).T
-    st.table(df)
-    st.info("VIRT: Espacio que el pasajero dice que podría ocupar. RES: Asientos reales ocupados. [cite: 19, 20]")
+    st.table(pd.DataFrame(st.session_state.procesos).T)
 
-# --- BOTÓN DE EMERGENCIA (OOM Killer) ---
-if st.button("🚨 Activar OOM Killer"):
-    # El Kernel decide matar al proceso más voraz 
+if st.button("🚨 OOM Killer"):
     if st.session_state.procesos:
-        voraz = max(st.session_state.procesos, key=lambda x: st.session_state.procesos[x]['RES'])
-        st.warning(f"El Kernel ha expulsado a: {voraz} por exceso de equipaje.")
-        st.session_state.memoria = ["Libre" if x == voraz else x for x in st.session_state.memoria]
-        del st.session_state.procesos[voraz]
+        borrar = max(st.session_state.procesos, key=lambda x: st.session_state.procesos[x]['RES'])
+        st.session_state.memoria = ["Libre" if x == borrar else x for x in st.session_state.memoria]
+        del st.session_state.procesos[borrar]
         st.rerun()
